@@ -22,7 +22,7 @@ start and listen for requests at http://localhost:8080
 
 ## Talking to the server
 
-``
+```
 $> curl -s 'http://localhost:8080?latitude=40.677524&longitude=-73.987343&ymd=19700101' | python -mjson.tool
 {
     "dawn": "1024-07-02T00:49:20-08:00",
