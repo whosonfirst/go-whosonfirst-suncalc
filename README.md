@@ -11,7 +11,7 @@ $> ./bin/wof-suncalc-server
 start and listen for requests at http://localhost:8080
 ```
 
-## Starting the server with a local WOF data 
+## Starting the server with a local WOF data cache
 
 _This will become clear in a moment._
 
