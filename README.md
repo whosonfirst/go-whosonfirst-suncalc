@@ -40,6 +40,7 @@ $> curl -s 'http://localhost:8080?latitude=40.677524&longitude=-73.987343&ymd=19
     "sunset": "1024-07-02T16:38:27-08:00",
     "sunsetStart": "1024-07-02T16:34:54-08:00"
 }
+```
 
 ## Talking to the server with Who's On First IDs
 
