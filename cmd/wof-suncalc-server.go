@@ -106,6 +106,9 @@ func (l *WOFLookup) GetLatLonById(wofid int) (float64, float64, error) {
 		return lat, lon, err
 	}
 
+	// sudo put this logic in wof-geojson itself or a wof-geojson-utils
+	// package ? (20160616/thisisaaronland)
+	
 	fbody := feature.Body()
 
 	var ok bool
