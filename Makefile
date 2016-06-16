@@ -25,7 +25,6 @@ vendor: rmdeps deps
 
 fmt:
 	go fmt cmd/*.go
-	go fmt *.go
 
 bin: 	self
 	@GOPATH=$(GOPATH) go build -o bin/wof-suncalc-server cmd/wof-suncalc-server.go

@@ -2,13 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"github.com/whosonfirst/suncalc-go"
 	"github.com/whosonfirst/go-httpony/cors"
 	"github.com/whosonfirst/go-httpony/tls"
 	"github.com/whosonfirst/go-whosonfirst-geojson"
 	"github.com/whosonfirst/go-whosonfirst-utils"
+	"github.com/whosonfirst/suncalc-go"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -17,6 +18,112 @@ import (
 	"strconv"
 	"time"
 )
+
+// sudo put me in a package somewhere... specifically make me an interface
+// so lookups can be remote, local, in a DB whatever (20160616/thisisaaronland)
+
+type WOFLookup struct {
+	Root     string
+	is_local bool
+	ua       *http.Client
+}
+
+func NewWOFLookup(root string) (*WOFLookup, error) {
+
+	re_file, _ := regexp.Compile(`^file\:\/\/(.*)$`)
+
+	is_local := false
+	ua := &http.Client{}
+
+	if re_file.Match([]byte(root)) {
+
+		match := re_file.FindStringSubmatch(root)
+
+		root = "file:///"
+		root_trimmed := match[1]
+
+		t := &http.Transport{}
+		t.RegisterProtocol("file", http.NewFileTransport(http.Dir(root_trimmed)))
+		ua = &http.Client{Transport: t}
+	}
+
+	l := WOFLookup{
+		Root:     root,
+		is_local: is_local,
+		ua:       ua,
+	}
+
+	return &l, nil
+}
+
+func (l *WOFLookup) Id2AbsPath(id int) string {
+
+	rel_path := utils.Id2RelPath(id)
+	return l.Root + rel_path
+}
+
+// sudo cache me
+
+func (l *WOFLookup) GetFeatureById(wofid int) (*geojson.WOFFeature, error) {
+
+	uri := l.Id2AbsPath(wofid)
+
+	r, err := l.ua.Get(uri)
+
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+
+	if r.StatusCode != 200 {
+		return nil, errors.New("404")
+	}
+
+	body, err := ioutil.ReadAll(r.Body)
+
+	if err != nil {
+		return nil, err
+	}
+
+	feature, err := geojson.UnmarshalFeature(body)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return feature, nil
+}
+
+// sudo cache me
+
+func (l *WOFLookup) GetLatLonById(wofid int) (float64, float64, error) {
+
+	var lat float64
+	var lon float64
+
+	feature, err := l.GetFeatureById(wofid)
+
+	if err != nil {
+		return lat, lon, err
+	}
+
+	fbody := feature.Body()
+
+	var ok bool
+
+	lat, ok = fbody.Path("properties.geom:latitude").Data().(float64)
+
+	if !ok {
+		return lat, lon, errors.New("Missing latitude")
+	}
+
+	lon, ok = fbody.Path("properties.geom:longitude").Data().(float64)
+
+	if !ok {
+		return lat, lon, errors.New("Missing longitude")
+	}
+
+	return lat, lon, nil
+}
 
 func main() {
 
@@ -31,28 +138,18 @@ func main() {
 
 	flag.Parse()
 
+	lookup, err := NewWOFLookup(*wof_root)
+
+	if err != nil {
+		panic(err)
+	}
+
 	endpoint := fmt.Sprintf("%s:%d", *host, *port)
 
 	request_handler := func() http.Handler {
 
-		re_file, _ := regexp.Compile(`^file\:\/\/(.*)$`)
 		re_ymd, _ := regexp.Compile(`^(\d{4})-?(\d{2})-?(\d{2})$`)
 
-		client := &http.Client{}
-		local_fs := false
-		
-		if re_file.Match([]byte(*wof_root)) {
-
-			match := re_file.FindStringSubmatch(*wof_root)
-			root := match[1]
-
-			t := &http.Transport{}
-			t.RegisterProtocol("file", http.NewFileTransport(http.Dir(root)))
-			client = &http.Client{Transport: t}
-
-			local_fs = true
-		}
-		
 		fn := func(rsp http.ResponseWriter, req *http.Request) {
 
 			var t time.Time
@@ -75,68 +172,16 @@ func main() {
 					http.Error(rsp, "400 Bad Gateway", http.StatusBadRequest)
 					return
 				}
-				
-				wof_path := utils.Id2RelPath(wof_id)
 
-				var wof_uri string
-
-				if local_fs {
-
-					wof_uri = "file:///" + wof_path
-
-				} else {
-
-					wof_uri = *wof_root + wof_path
-				}
-
-				r, err := client.Get(wof_uri)
-
-				if err != nil && err != io.EOF {
-					http.Error(rsp, "502 Bad Gateway", http.StatusBadGateway)
-					return
-				}
-
-				if r.StatusCode != 200 {
-					http.Error(rsp, "404 Not Found", http.StatusNotFound)
-					return
-				}
-
-				body, err := ioutil.ReadAll(r.Body)
+				w_lat, w_lon, err := lookup.GetLatLonById(wof_id)
 
 				if err != nil {
-					http.Error(rsp, "500 Server Error", http.StatusInternalServerError)
+					http.Error(rsp, err.Error(), http.StatusInternalServerError)
 					return
 				}
 
-				feature, err := geojson.UnmarshalFeature(body)
-
-				if err != nil {
-					http.Error(rsp, "500 Server Error", http.StatusInternalServerError)
-					return
-				}
-
-				fbody := feature.Body()
-
-				var f_lat float64
-				var f_lon float64
-				var ok bool
-
-				f_lat, ok = fbody.Path("properties.geom:latitude").Data().(float64)
-
-				if !ok {
-					http.Error(rsp, "500 Server Error", http.StatusInternalServerError)
-					return
-				}
-
-				f_lon, ok = fbody.Path("properties.geom:longitude").Data().(float64)
-
-				if !ok {
-					http.Error(rsp, "500 Server Error", http.StatusInternalServerError)
-					return
-				}
-
-				lat = f_lat
-				lon = f_lon
+				lat = w_lat
+				lon = w_lon
 
 			} else {
 
@@ -222,8 +267,6 @@ func main() {
 	}
 
 	handler := cors.EnsureCORSHandler(request_handler(), *cors_enable, *cors_allow)
-
-	var err error
 
 	if *tls_enable {
 
