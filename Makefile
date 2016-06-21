@@ -11,16 +11,11 @@ rmdeps:
 
 build:	rmdeps fmt bin
 
-deps:   self
+deps:   
 	@GOPATH=$(GOPATH) go get -u "github.com/whosonfirst/go-whosonfirst-geojson"
-	@GOPATH=$(GOPATH) go get -u "github.com/whosonfirst/go-whosonfirst-utils"
+	@GOPATH=$(GOPATH) go get -u "github.com/whosonfirst/go-whosonfirst-lookup"
 	@GOPATH=$(GOPATH) go get -u "github.com/whosonfirst/go-httpony"
 	@GOPATH=$(GOPATH) go get -u "github.com/whosonfirst/suncalc-go"
-
-vendor: rmdeps deps
-	if test ! -d vendor; then mkdir vendor; fi
-	if test -d vendor/src; then rm -rf vendor/src; fi
-	cp -r src vendor/src
 	find vendor -name '.git' -print -type d -exec rm -rf {} +
 
 fmt:

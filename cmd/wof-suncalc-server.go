@@ -8,10 +8,8 @@ import (
 	"github.com/whosonfirst/go-httpony/cors"
 	"github.com/whosonfirst/go-httpony/tls"
 	"github.com/whosonfirst/go-whosonfirst-geojson"
-	"github.com/whosonfirst/go-whosonfirst-utils"
+	"github.com/whosonfirst/go-whosonfirst-lookup/providers"
 	"github.com/whosonfirst/suncalc-go"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"regexp"
@@ -19,92 +17,10 @@ import (
 	"time"
 )
 
-// sudo put me in a package somewhere... specifically make me an interface
-// so lookups can be remote, local, in a DB whatever (20160616/thisisaaronland)
-
-type WOFLookup struct {
-	Root     string
-	is_local bool
-	ua       *http.Client
-}
-
-func NewWOFLookup(root string) (*WOFLookup, error) {
-
-	re_file, _ := regexp.Compile(`^file\:\/\/(.*)$`)
-
-	is_local := false
-	ua := &http.Client{}
-
-	if re_file.Match([]byte(root)) {
-
-		match := re_file.FindStringSubmatch(root)
-
-		root = "file:///"
-		root_trimmed := match[1]
-
-		t := &http.Transport{}
-		t.RegisterProtocol("file", http.NewFileTransport(http.Dir(root_trimmed)))
-		ua = &http.Client{Transport: t}
-	}
-
-	l := WOFLookup{
-		Root:     root,
-		is_local: is_local,
-		ua:       ua,
-	}
-
-	return &l, nil
-}
-
-func (l *WOFLookup) Id2AbsPath(id int) string {
-
-	rel_path := utils.Id2RelPath(id)
-	return l.Root + rel_path
-}
-
-// sudo cache me
-
-func (l *WOFLookup) GetFeatureById(wofid int) (*geojson.WOFFeature, error) {
-
-	uri := l.Id2AbsPath(wofid)
-
-	r, err := l.ua.Get(uri)
-
-	if err != nil && err != io.EOF {
-		return nil, err
-	}
-
-	if r.StatusCode != 200 {
-		return nil, errors.New("404")
-	}
-
-	body, err := ioutil.ReadAll(r.Body)
-
-	if err != nil {
-		return nil, err
-	}
-
-	feature, err := geojson.UnmarshalFeature(body)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return feature, nil
-}
-
-// sudo cache me
-
-func (l *WOFLookup) GetLatLonById(wofid int) (float64, float64, error) {
+func GetLatLon(feature *geojson.WOFFeature) (float64, float64, error) {
 
 	var lat float64
 	var lon float64
-
-	feature, err := l.GetFeatureById(wofid)
-
-	if err != nil {
-		return lat, lon, err
-	}
 
 	// sudo put this logic in wof-geojson itself or a wof-geojson-utils
 	// package ? (20160616/thisisaaronland)
@@ -141,7 +57,7 @@ func main() {
 
 	flag.Parse()
 
-	lookup, err := NewWOFLookup(*wof_root)
+	lookup, err := providers.NewWOFFSProvider(*wof_root)
 
 	if err != nil {
 		panic(err)
@@ -176,13 +92,20 @@ func main() {
 					return
 				}
 
-				w_lat, w_lon, err := lookup.GetLatLonById(wof_id)
+				feature, err := lookup.GetFeatureById(wof_id)			
 
 				if err != nil {
 					http.Error(rsp, err.Error(), http.StatusInternalServerError)
 					return
 				}
 
+				w_lat, w_lon, err := GetLatLon(feature)
+
+				if err != nil {
+					http.Error(rsp, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				
 				lat = w_lat
 				lon = w_lon
 
